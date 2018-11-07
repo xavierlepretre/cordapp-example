@@ -6,6 +6,7 @@ import net.corda.core.contracts.Contract
 import net.corda.core.contracts.requireSingleCommand
 import net.corda.core.contracts.requireThat
 import net.corda.core.transactions.LedgerTransaction
+import java.lang.IllegalArgumentException
 
 /**
  * A implementation of a basic smart contract in Corda.
@@ -30,17 +31,28 @@ class IOUContract : Contract {
      * considered valid.
      */
     override fun verify(tx: LedgerTransaction) {
-        val command = tx.commands.requireSingleCommand<Commands.Create>()
-        requireThat {
-            // Generic constraints around the IOU transaction.
-            "No inputs should be consumed when issuing an IOU." using (tx.inputs.isEmpty())
-            "Only one output state should be created." using (tx.outputs.size == 1)
-            val out = tx.outputsOfType<IOUState>().single()
-            "The lender and the borrower cannot be the same entity." using (out.lender != out.borrower)
-            "All of the participants must be signers." using (command.signers.containsAll(out.participants.map { it.owningKey }))
+        val command = tx.commands.requireSingleCommand<Commands>()
+        when(command.value) {
+            is Commands.Create -> requireThat {
+                // Generic constraints around the IOU transaction.
+                "No inputs should be consumed when issuing an IOU." using (tx.inputs.isEmpty())
+                "Only one output state should be created." using (tx.outputs.size == 1)
+                val out = tx.outputsOfType<IOUState>().single()
+                "The lender and the borrower cannot be the same entity." using (out.lender != out.borrower)
+                "All of the participants must be signers." using (command.signers.containsAll(out.participants.map { it.owningKey }))
 
-            // IOU-specific constraints.
-            "The IOU's value must be non-negative." using (out.value > 0)
+                // IOU-specific constraints.
+                "The IOU's value must be non-negative." using (out.value > 0)
+            }
+
+            is Commands.Destroy -> requireThat {
+                "Only one input state should be consumed" using (tx.inputs.size == 1)
+                "No outputs should be created when destroying an IOU" using (tx.outputs.isEmpty())
+                val input = tx.inputsOfType<IOUState>().single()
+                "All of the participants must be signers" using (command.signers.containsAll(input.participants.map { it.owningKey }))
+            }
+
+            else -> throw IllegalArgumentException("Unknown command ${command.value}")
         }
     }
 
@@ -49,5 +61,6 @@ class IOUContract : Contract {
      */
     interface Commands : CommandData {
         class Create : Commands
+        class Destroy : Commands
     }
 }
